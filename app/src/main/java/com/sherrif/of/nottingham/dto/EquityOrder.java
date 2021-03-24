@@ -8,6 +8,7 @@ public class EquityOrder {
     private long timestamp;
     private int orderId;
     private String region;
+    private boolean errorFlag;
 
     public double getPrice() {
         return price;
@@ -58,4 +59,14 @@ public class EquityOrder {
     public void setOrderId(int orderId) {
         this.orderId = orderId;
     }
+
+
+    public boolean isErrorFlag() {
+        return errorFlag;
+    }
+
+    public void setErrorFlag(boolean errorFlag) {
+        this.errorFlag = errorFlag;
+    }
+
 }
