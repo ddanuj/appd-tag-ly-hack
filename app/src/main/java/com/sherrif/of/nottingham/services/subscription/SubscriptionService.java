@@ -1,6 +1,7 @@
 package com.sherrif.of.nottingham.services.subscription;
 
 import com.sherrif.of.nottingham.app.ConfigurationUtil;
+import com.sherrif.of.nottingham.app.OrderServiceApplication;
 import com.sherrif.of.nottingham.dto.StockQuote;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.trace.Span;
@@ -11,11 +12,14 @@ import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.context.propagation.TextMapGetter;
 import io.opentelemetry.context.propagation.TextMapPropagator;
+import org.apache.coyote.Response;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpEntity;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -53,17 +57,14 @@ public class SubscriptionService {
         stockQuote.setTimestampInMillis(System.currentTimeMillis());
     }
 
-    @GetMapping("/subscribe")
-    public StockQuote subscribeQuote() {
+    @GetMapping(path = "/subscribe", consumes = "application/json", produces = "application/json")
+    public ResponseEntity<StockQuote> subscribeQuote(@RequestParam(value = "ticker", defaultValue = "$GME") String ticker) {
         logger.info("/subscription service requested");
         // OTel Tracing API
         final Tracer tracer =
                 openTelemetry.getTracer("com.sherrif.of.nottingham.order.service.services.SubscriptionService");
 
         Context extractedContext = openTelemetry.getPropagators().getTextMapPropagator()
-                .extract(Context.current(), null, getter);
-
-        Context remote = openTelemetry.getPropagators().getTextMapPropagator()
                 .extract(Context.current(), null, getter);
 
         // Build a span based on the received context
@@ -77,13 +78,15 @@ public class SubscriptionService {
         // Set the context with the current span
         try (Scope scope = span.makeCurrent()) {
             try {
-                return this.stockQuote;
+                logger.info("created subscription service span with id {}", span.getSpanContext());
             } catch (Throwable e) {
-                span.setStatus(StatusCode.ERROR, e.getMessage());
+                logger.error("Exception during the /process with the exception {}", String.valueOf(e));
+                span.setAttribute("Stack trace", String.valueOf(e.getStackTrace()));
+                span.setStatus(StatusCode.ERROR, String.valueOf(e.getStackTrace()));
             }
         } finally {
             span.end();
-            return null;
         }
+        return ResponseEntity.ok(this.stockQuote);
     }
 }

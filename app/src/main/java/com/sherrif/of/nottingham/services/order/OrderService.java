@@ -23,19 +23,28 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestTemplate;
 
+import javax.swing.filechooser.FileSystemView;
+import java.io.File;
 import java.util.List;
+import java.util.Random;
+import java.util.concurrent.atomic.AtomicLong;
 
 @RestController
 @RequestMapping("/orderService")
 public class OrderService {
 
+    Logger logger = LoggerFactory.getLogger(OrderService.class);
     // it is important to initialize the OpenTelemetry SDK as early as possible in your application's
     // lifecycle.
     private static final OpenTelemetry openTelemetry = ConfigurationUtil.initOpenTelemetry();
@@ -72,19 +81,25 @@ public class OrderService {
                     carrier.getHeaders().add(key, value);
                 }
             };
-    Logger logger = LoggerFactory.getLogger(OrderService.class);
 
-    @GetMapping("/getQuote")
-    public StockQuote getQuote(@RequestParam(value = "ticker", defaultValue = "$GME") String ticker) {
+    @GetMapping(value="/getQuote/{ticker}", produces = MediaType.TEXT_PLAIN_VALUE)
+    public ResponseEntity<StockQuote> getQuote(@PathVariable("ticker") String ticker) {
         long startTime = System.currentTimeMillis();
         StockQuote stockQuote = null;
         // OTel Tracing API
         final Tracer tracer = openTelemetry.getTracer("com.sherrif.of.nottingham.order.service.services.OrderService");
         // Start a span
         Span span = tracer.spanBuilder("orderService/getQuote").setSpanKind(SpanKind.CLIENT).startSpan();
-
+        try {
+            handleError(ticker);
+        } catch (Exception e) {
+            logger.error("Random exception during the /getQuote of : {} for region {}", ticker);
+            span.setAttribute("Stack trace", String.valueOf(e.getStackTrace()));
+            span.setStatus(StatusCode.ERROR, e.getMessage());
+        }
         try (Scope scope = span.makeCurrent()) {
             try {
+                span.setAttribute("Good", "true");
                 // CPM
                 BoundLongCounter cpmRecorder = callsPerMinute.bind(Labels.of("stock", ticker));
                 cpmRecorder.add(1);
@@ -97,25 +112,27 @@ public class OrderService {
 
                 stockQuote = response.getBody();
                 openTelemetry.getPropagators().getTextMapPropagator().inject(Context.current(), entity, setter);
-                logger.info(stockQuote.toString());
+                logger.info("Stock quote {}", stockQuote.toString());
                 // Latency
                 BoundLongCounter latencyRecorder = requestLatency.bind(Labels.of("stock", ticker));
                 latencyRecorder.add(System.currentTimeMillis() - startTime);
             } catch (Throwable e) {
                 // EPM
+                logger.error("Exception during the /equityOrder with the exception {}", String.valueOf(e));
                 BoundLongCounter epmRecorder = errorsPerMinute.bind(Labels.of("stock", ticker));
                 epmRecorder.add(1);
-                span.setStatus(StatusCode.ERROR, e.getMessage());
+                span.setAttribute("Stack trace", String.valueOf(e.getStackTrace()));
+                span.setStatus(StatusCode.ERROR, String.valueOf(e.getStackTrace()));
             }
         } finally {
             span.end();
         }
 
-        return stockQuote;
+        return ResponseEntity.ok(stockQuote);
     }
 
-    @GetMapping("/equityOrder")
-    public EquityOrder equityOrder(@RequestParam EquityOrder order) {
+    @PostMapping(path = "/equityOrder", consumes = "application/json", produces = "application/json")
+    public ResponseEntity<EquityOrder> equityOrder(@RequestBody EquityOrder order) {
         long startTime = System.currentTimeMillis();
         // CPM
         BoundLongCounter cpmRecorder = callsPerMinute.bind(Labels.of("stock", order.getTicker(), "region", order.getRegion()));
@@ -125,12 +142,24 @@ public class OrderService {
         final Tracer tracer = openTelemetry.getTracer("com.sherrif.of.nottingham.order.service.services.OrderService");
         // Start a span
         Span span = tracer.spanBuilder("orderService/equityOrder").setSpanKind(SpanKind.CLIENT).startSpan();
+        if(order.isErrorFlag()) {
+            logger.error("Exception during the /equityOrder due to an input error");
+            span.setAttribute("Stack trace", "Exception during the /equityOrder due to an input error");
+            span.setStatus(StatusCode.ERROR, "Exception during the /equityOrder due to an input error");
+        }
+        try {
+            handleError(order.getTicker());
+        } catch (Exception e) {
+            logger.error("Random exception during the /equityOrder of : {} for region {}", order.getTicker(), order.getRegion());
+            span.setAttribute("Stack trace", String.valueOf(e.getStackTrace()));
+            span.setStatus(StatusCode.ERROR, String.valueOf(e.getStackTrace()));
+        }
 
         // Set the context with the current span
         try (Scope scope = span.makeCurrent()) {
             try {
                 HttpHeaders headers = new HttpHeaders();
-                headers.set("Header", "value");
+                headers.set("Good", "true");
                 headers.set("Other-Header", "othervalue");
                 HttpEntity entity = new HttpEntity(headers);
                 ResponseEntity<EquityOrder> response = restTemplate.exchange(
@@ -138,12 +167,14 @@ public class OrderService {
 
                 order = response.getBody();
                 openTelemetry.getPropagators().getTextMapPropagator().inject(Context.current(), entity, setter);
-                logger.info(order.toString());
+                logger.info("Order processed {}", order.toString());
                 // Latency
                 BoundLongCounter latencyRecorder = requestLatency.bind(Labels.of("stock", order.getTicker(), "region", order.getRegion()));
                 latencyRecorder.add(System.currentTimeMillis() - startTime);
             } catch (Throwable e) {
-                span.setStatus(StatusCode.ERROR, e.getMessage());
+                logger.error("Exception during the /equityOrder with the exception {}", String.valueOf(e));
+                span.setAttribute("Stack trace", String.valueOf(e.getStackTrace()));
+                span.setStatus(StatusCode.ERROR, String.valueOf(e.getStackTrace()));
                 // EPM
                 BoundLongCounter epmRecorder = errorsPerMinute.bind(Labels.of("stock", order.getTicker(), "region", order.getRegion()));
                 epmRecorder.add(1);
@@ -151,11 +182,11 @@ public class OrderService {
         } finally {
             span.end();
         }
-        return order;
+        return ResponseEntity.ok(order);
     }
 
-    @GetMapping("/shoutout")
-    public void shoutOut(@RequestParam String text) {
+    @PostMapping("/shoutout")
+    public ResponseEntity<Object> shoutOut(@RequestBody String text) {
         StockQuote stockQuote = null;
         // OTel Tracing API
         final Tracer tracer = openTelemetry.getTracer("com.sherrif.of.nottingham.order.service.services.OrderService");
@@ -190,6 +221,15 @@ public class OrderService {
             }
         } finally {
             span.end();
+        }
+        return ResponseEntity.noContent().build();
+    }
+
+    private void handleError(String ticker) throws Exception {
+        Random random = new Random();
+        if(random.nextInt(10)>5) {
+            logger.error("Random exception during the transaction processing of : {}", ticker);
+            throw new Exception(String.format("Random exception during the transaction processing of : %s", ticker));
         }
     }
 }
