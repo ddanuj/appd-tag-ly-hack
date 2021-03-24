@@ -106,9 +106,9 @@ public class OrderService {
                 HttpHeaders headers = new HttpHeaders();
                 headers.set("Header", "value");
                 headers.set("Other-Header", "othervalue");
-                HttpEntity entity = new HttpEntity(headers);
-                ResponseEntity<StockQuote> response = restTemplate.exchange(
-                        "http://localhost:7071/subscriptionService/subscribe", HttpMethod.GET, entity, StockQuote.class);
+                HttpEntity entity = new HttpEntity(ticker,headers);
+                ResponseEntity<StockQuote> response = restTemplate.postForEntity(
+                        "http://localhost:7072/subscriptionService/subscribe", entity, StockQuote.class);
 
                 stockQuote = response.getBody();
                 openTelemetry.getPropagators().getTextMapPropagator().inject(Context.current(), entity, setter);
@@ -161,9 +161,10 @@ public class OrderService {
                 HttpHeaders headers = new HttpHeaders();
                 headers.set("Good", "true");
                 headers.set("Other-Header", "othervalue");
-                HttpEntity entity = new HttpEntity(headers);
-                ResponseEntity<EquityOrder> response = restTemplate.exchange(
-                        "http://localhost:7072/orderProcessor/process", HttpMethod.POST, entity, EquityOrder.class, order);
+                HttpEntity entity = new HttpEntity(order,headers);
+
+                ResponseEntity<EquityOrder> response = restTemplate.postForEntity(
+                        "http://localhost:7071/orderProcessor/process", entity, EquityOrder.class);
 
                 order = response.getBody();
                 openTelemetry.getPropagators().getTextMapPropagator().inject(Context.current(), entity, setter);

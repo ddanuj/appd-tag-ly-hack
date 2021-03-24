@@ -3,8 +3,6 @@ package com.sherrif.of.nottingham.services.processor;
 import com.sherrif.of.nottingham.app.ConfigurationUtil;
 import com.sherrif.of.nottingham.dto.EquityOrder;
 import io.opentelemetry.api.OpenTelemetry;
-import io.opentelemetry.api.metrics.BoundLongCounter;
-import io.opentelemetry.api.metrics.common.Labels;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;
@@ -17,23 +15,27 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
 
+import javax.servlet.http.HttpServletRequest;
+import java.util.Map;
 import java.util.Random;
 
 @RestController
 @RequestMapping("/orderProcessor")
 public class OrderProcessorService {
-    Logger logger = LoggerFactory.getLogger(OrderProcessorService.class);
     // it is important to initialize the OpenTelemetry SDK as early as possible in your application's
     // lifecycle.
     private static final OpenTelemetry openTelemetry = ConfigurationUtil.initOpenTelemetry();
-    private final TextMapPropagator textFormat =
-            openTelemetry.getPropagators().getTextMapPropagator();
 
+    Logger logger = LoggerFactory.getLogger(OrderProcessorService.class);
     TextMapGetter<HttpEntity> getter =
             new TextMapGetter<>() {
                 @Override
@@ -49,21 +51,18 @@ public class OrderProcessorService {
                     return carrier.getHeaders().keySet();
                 }
             };
-    private EquityOrder equityOrder = new EquityOrder();
 
-    public OrderProcessorService() {
-
-    }
 
     @PostMapping(path = "/process", consumes = "application/json", produces = "application/json")
-    public ResponseEntity<EquityOrder> processOrder(@RequestBody EquityOrder order) {
+    public @ResponseBody ResponseEntity<EquityOrder> process(@RequestBody EquityOrder order, @RequestHeader MultiValueMap<String, String> headers) {
         logger.info("/orderProcessor service requested");
         // OTel Tracing API
         final Tracer tracer =
                 openTelemetry.getTracer("com.sherrif.of.nottingham.order.service.services.OrderProcessorService");
+        HttpEntity entity = new HttpEntity(order,headers);
 
         Context extractedContext = openTelemetry.getPropagators().getTextMapPropagator()
-                .extract(Context.current(), null, getter);
+                .extract(Context.current(), entity, getter);
 
         // Build a span based on the received context
         Span span =
@@ -78,7 +77,7 @@ public class OrderProcessorService {
             try {
                 logger.info("created order processor span with id {}", span.getSpanContext());
                 Random random = new Random();
-                equityOrder.setOrderId(random.nextInt(10000));
+                order.setOrderId(random.nextInt(10000));
             } catch (Throwable e) {
                 logger.error("Exception during the /process with the exception {}", String.valueOf(e));
                 span.setAttribute("Stack trace", String.valueOf(e.getStackTrace()));
@@ -87,6 +86,12 @@ public class OrderProcessorService {
         } finally {
             span.end();
         }
-        return ResponseEntity.ok(equityOrder);
+        return ResponseEntity.ok(order);
+    }
+
+    @GetMapping("/greeting")
+    public String greeting() {
+        logger.info("/client service requested");
+        return "success";
     }
 }

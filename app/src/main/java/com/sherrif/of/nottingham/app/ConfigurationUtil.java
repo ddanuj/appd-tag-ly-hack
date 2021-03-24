@@ -31,7 +31,7 @@ public class ConfigurationUtil {
                 .addShutdownHook(
                         new Thread(
                                 () -> {
-                                    logger.info(
+                                   logger.info(
                                             "*** forcing the Span Exporter to shutdown and process the remaining spans");
                                     sdkTracerProvider.shutdown();
                                     System.err.println("*** Trace Exporter shut down");

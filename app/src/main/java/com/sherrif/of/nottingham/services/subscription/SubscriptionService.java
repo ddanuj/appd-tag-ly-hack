@@ -17,7 +17,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -57,15 +59,18 @@ public class SubscriptionService {
         stockQuote.setTimestampInMillis(System.currentTimeMillis());
     }
 
-    @GetMapping(path = "/subscribe", consumes = "application/json", produces = "application/json")
-    public ResponseEntity<StockQuote> subscribeQuote(@RequestParam(value = "ticker", defaultValue = "$GME") String ticker) {
+    @GetMapping(path = "/subscribe")
+    public ResponseEntity<StockQuote> subscribeQuote(@RequestParam(value = "ticker", defaultValue = "$GME") String ticker,
+                                                     @RequestHeader MultiValueMap<String, String> headers) {
         logger.info("/subscription service requested");
         // OTel Tracing API
         final Tracer tracer =
                 openTelemetry.getTracer("com.sherrif.of.nottingham.order.service.services.SubscriptionService");
 
+        HttpEntity entity = new HttpEntity(ticker,headers);
+
         Context extractedContext = openTelemetry.getPropagators().getTextMapPropagator()
-                .extract(Context.current(), null, getter);
+                .extract(Context.current(), entity, getter);
 
         // Build a span based on the received context
         Span span =

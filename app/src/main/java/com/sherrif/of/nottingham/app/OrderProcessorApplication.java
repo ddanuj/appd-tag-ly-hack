@@ -9,6 +9,6 @@ import org.springframework.context.annotation.ComponentScan;
 public class OrderProcessorApplication {
     public static void main(String[] args) {
         // Set to process the spans with the LoggingSpanExporter
-        SpringApplication.run(OrderServiceApplication.class, args);
+        SpringApplication.run(OrderProcessorApplication.class, args);
     }
 }
