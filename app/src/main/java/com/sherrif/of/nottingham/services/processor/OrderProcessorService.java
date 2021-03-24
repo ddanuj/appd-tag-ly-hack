@@ -3,6 +3,8 @@ package com.sherrif.of.nottingham.services.processor;
 import com.sherrif.of.nottingham.app.ConfigurationUtil;
 import com.sherrif.of.nottingham.dto.EquityOrder;
 import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;
@@ -71,6 +73,20 @@ public class OrderProcessorService {
                         .setParent(extractedContext)
                         .setSpanKind(SpanKind.SERVER)
                         .startSpan();
+        try {
+            handleError(order.getTicker());
+        } catch (Exception e) {
+            logger.error("Random exception during the orderProcessor/process of : {} for region {}", order.getTicker(), order.getRegion());
+            Attributes attributes = Attributes.of(AttributeKey.stringKey("stack-trace"), String.valueOf(e));
+            span.addEvent("Order Processor Stack trace", attributes);
+            span.setStatus(StatusCode.ERROR, e.getMessage());
+        }
+        if(order.isErrorFlag()) {
+            logger.error("Exception during the /equityOrder due to an input error");
+            Attributes attributes = Attributes.of(AttributeKey.stringKey("stack-trace"), String.valueOf(Thread.getAllStackTraces()));
+            span.addEvent("Order Processor Stack trace", attributes);
+            span.setStatus(StatusCode.ERROR, "Exception during the /equityOrder due to an input error");
+        }
 
         // Set the context with the current span
         try (Scope scope = span.makeCurrent()) {
@@ -93,5 +109,13 @@ public class OrderProcessorService {
     public String greeting() {
         logger.info("/client service requested");
         return "success";
+    }
+
+    private void handleError(String ticker) throws Exception {
+        Random random = new Random();
+        if(random.nextInt(10)>5) {
+            logger.error("Random exception during the transaction processing of : {}", ticker);
+            throw new Exception(String.format("Random exception during the transaction processing of : %s", ticker));
+        }
     }
 }

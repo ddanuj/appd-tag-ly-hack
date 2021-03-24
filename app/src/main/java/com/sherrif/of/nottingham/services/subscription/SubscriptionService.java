@@ -4,6 +4,8 @@ import com.sherrif.of.nottingham.app.ConfigurationUtil;
 import com.sherrif.of.nottingham.app.OrderServiceApplication;
 import com.sherrif.of.nottingham.dto.StockQuote;
 import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;
@@ -23,6 +25,8 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.Random;
 
 @RestController
 @RequestMapping("/subscriptionService")
@@ -80,6 +84,16 @@ public class SubscriptionService {
                         .setSpanKind(SpanKind.SERVER)
                         .startSpan();
 
+        try {
+            handleError(ticker);
+        } catch (Exception e) {
+            logger.error("Random exception during the /subscribe of : {} for region {}", ticker);
+            Attributes attributes = Attributes.of(AttributeKey.stringKey("stack-trace"), String.valueOf(e));
+            span.addEvent("Order Processor Stack trace", attributes);
+            span.setAttribute("Stack trace", String.valueOf(e.getStackTrace()));
+            span.setStatus(StatusCode.ERROR, String.valueOf(e.getStackTrace()));
+        }
+
         // Set the context with the current span
         try (Scope scope = span.makeCurrent()) {
             try {
@@ -93,5 +107,13 @@ public class SubscriptionService {
             span.end();
         }
         return ResponseEntity.ok(this.stockQuote);
+    }
+
+    private void handleError(String ticker) throws Exception {
+        Random random = new Random();
+        if(random.nextInt(10)>5) {
+            logger.error("Random exception during the transaction processing of : {}", ticker);
+            throw new Exception(String.format("Random exception during the transaction processing of : %s", ticker));
+        }
     }
 }

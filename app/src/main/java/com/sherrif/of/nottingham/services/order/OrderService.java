@@ -4,6 +4,8 @@ import com.sherrif.of.nottingham.app.ConfigurationUtil;
 import com.sherrif.of.nottingham.dto.EquityOrder;
 import com.sherrif.of.nottingham.dto.StockQuote;
 import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.metrics.BoundLongCounter;
 import io.opentelemetry.api.metrics.GlobalMetricsProvider;
 import io.opentelemetry.api.metrics.LongCounter;
@@ -90,13 +92,6 @@ public class OrderService {
         final Tracer tracer = openTelemetry.getTracer("com.sherrif.of.nottingham.order.service.services.OrderService");
         // Start a span
         Span span = tracer.spanBuilder("orderService/getQuote").setSpanKind(SpanKind.CLIENT).startSpan();
-        try {
-            handleError(ticker);
-        } catch (Exception e) {
-            logger.error("Random exception during the /getQuote of : {} for region {}", ticker);
-            span.setAttribute("Stack trace", String.valueOf(e.getStackTrace()));
-            span.setStatus(StatusCode.ERROR, e.getMessage());
-        }
         try (Scope scope = span.makeCurrent()) {
             try {
                 span.setAttribute("Good", "true");
@@ -141,34 +136,11 @@ public class OrderService {
         // OTel Tracing API
         final Tracer tracer = openTelemetry.getTracer("com.sherrif.of.nottingham.order.service.services.OrderService");
         // Start a span
-        Span span = tracer.spanBuilder("orderService/equityOrder").setSpanKind(SpanKind.CLIENT).startSpan();
-        if(order.isErrorFlag()) {
-            logger.error("Exception during the /equityOrder due to an input error");
-            span.setAttribute("Stack trace", "Exception during the /equityOrder due to an input error");
-            span.setStatus(StatusCode.ERROR, "Exception during the /equityOrder due to an input error");
-        }
-        try {
-            handleError(order.getTicker());
-        } catch (Exception e) {
-            logger.error("Random exception during the /equityOrder of : {} for region {}", order.getTicker(), order.getRegion());
-            span.setAttribute("Stack trace", String.valueOf(e.getStackTrace()));
-            span.setStatus(StatusCode.ERROR, String.valueOf(e.getStackTrace()));
-        }
-
+        Span span = tracer.spanBuilder("orderService/equityOrder").setSpanKind(SpanKind.SERVER).startSpan();
         // Set the context with the current span
         try (Scope scope = span.makeCurrent()) {
             try {
-                HttpHeaders headers = new HttpHeaders();
-                headers.set("Good", "true");
-                headers.set("Other-Header", "othervalue");
-                HttpEntity entity = new HttpEntity(order,headers);
-
-                ResponseEntity<EquityOrder> response = restTemplate.postForEntity(
-                        "http://localhost:7071/orderProcessor/process", entity, EquityOrder.class);
-
-                order = response.getBody();
-                openTelemetry.getPropagators().getTextMapPropagator().inject(Context.current(), entity, setter);
-                logger.info("Order processed {}", order.toString());
+                downstreamCall(order, tracer);
                 // Latency
                 BoundLongCounter latencyRecorder = requestLatency.bind(Labels.of("stock", order.getTicker(), "region", order.getRegion()));
                 latencyRecorder.add(System.currentTimeMillis() - startTime);
@@ -184,6 +156,30 @@ public class OrderService {
             span.end();
         }
         return ResponseEntity.ok(order);
+    }
+
+    private void downstreamCall(EquityOrder order, Tracer tracer) {
+        Span downstreamCallSpan =
+                tracer
+                        .spanBuilder("orderProcessor/process/outgoingCall")
+                        .setSpanKind(SpanKind.CLIENT)
+                        .startSpan();
+        try {
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Good", "true");
+            headers.set("Other-Header", "othervalue");
+            HttpEntity entity = new HttpEntity(order, headers);
+
+            ResponseEntity<EquityOrder> response = restTemplate.postForEntity(
+                    "http://localhost:7071/orderProcessor/process", entity, EquityOrder.class);
+
+            order = response.getBody();
+            openTelemetry.getPropagators().getTextMapPropagator().inject(Context.current(), entity, setter);
+            logger.info("Order processed {}", order.toString());
+        } finally {
+            downstreamCallSpan.end();
+        }
     }
 
     @PostMapping("/shoutout")
@@ -224,13 +220,5 @@ public class OrderService {
             span.end();
         }
         return ResponseEntity.noContent().build();
-    }
-
-    private void handleError(String ticker) throws Exception {
-        Random random = new Random();
-        if(random.nextInt(10)>5) {
-            logger.error("Random exception during the transaction processing of : {}", ticker);
-            throw new Exception(String.format("Random exception during the transaction processing of : %s", ticker));
-        }
     }
 }
