@@ -77,7 +77,7 @@ public class App {
                 parentSpan.end();
                 LOGGER.info("Reported Span: " + parentSpan);
             }
-            Thread.sleep(1000);
+            Thread.sleep(60000);
             cnt ++;
         }
 
