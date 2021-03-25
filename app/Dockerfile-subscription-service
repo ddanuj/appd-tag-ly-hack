@@ -1,3 +1,3 @@
 FROM openjdk:13-jdk-alpine
 COPY build/libs/app-all.jar /usr/src/app-all.jar
-CMD java -cp /usr/src/app-all.jar -Dserver.port=7072 com.sherrif.of.nottingham.app.SubscriptionServiceApplication
+CMD java -cp /usr/src/app-all.jar -Dserver.port=7072 -Xmx1024m com.sherrif.of.nottingham.app.SubscriptionServiceApplication

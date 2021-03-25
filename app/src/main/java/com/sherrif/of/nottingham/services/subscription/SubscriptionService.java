@@ -20,11 +20,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestHeader;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.Random;
 
@@ -63,7 +59,7 @@ public class SubscriptionService {
         stockQuote.setTimestampInMillis(System.currentTimeMillis());
     }
 
-    @GetMapping(path = "/subscribe")
+    @GetMapping(value="/subscribe",  produces = "application/json")
     public ResponseEntity<StockQuote> subscribeQuote(@RequestParam(value = "ticker", defaultValue = "$GME") String ticker,
                                                      @RequestHeader MultiValueMap<String, String> headers) {
         logger.info("/subscription service requested");
@@ -85,9 +81,9 @@ public class SubscriptionService {
                         .startSpan();
 
         try {
-            handleError(ticker);
+            handleError(ticker, span);
         } catch (Exception e) {
-            logger.error("Random exception during the /subscribe of : {} for region {}", ticker);
+            logger.error("traceId {} - Random exception during the /subscribe of : {}", span.getSpanContext().getTraceId(), ticker);
             Attributes attributes = Attributes.of(AttributeKey.stringKey("stack-trace"), String.valueOf(e));
             span.addEvent("Order Processor Stack trace", attributes);
             span.setAttribute("Stack trace", String.valueOf(e.getStackTrace()));
@@ -97,9 +93,10 @@ public class SubscriptionService {
         // Set the context with the current span
         try (Scope scope = span.makeCurrent()) {
             try {
+                this.stockQuote.setTicker(ticker);
                 logger.info("created subscription service span with id {}", span.getSpanContext());
             } catch (Throwable e) {
-                logger.error("Exception during the /process with the exception {}", String.valueOf(e));
+                logger.error("traceId {} - Exception during the /process with the exception {}", span.getSpanContext().getTraceId(), String.valueOf(e));
                 span.setAttribute("Stack trace", String.valueOf(e.getStackTrace()));
                 span.setStatus(StatusCode.ERROR, String.valueOf(e.getStackTrace()));
             }
@@ -109,10 +106,10 @@ public class SubscriptionService {
         return ResponseEntity.ok(this.stockQuote);
     }
 
-    private void handleError(String ticker) throws Exception {
+    private void handleError(String ticker, Span span) throws Exception {
         Random random = new Random();
         if(random.nextInt(10)>5) {
-            logger.error("Random exception during the transaction processing of : {}", ticker);
+            logger.error("traceId {} - Random exception during the transaction processing of : {}", span.getSpanContext().getTraceId(), ticker);
             throw new Exception(String.format("Random exception during the transaction processing of : %s", ticker));
         }
     }

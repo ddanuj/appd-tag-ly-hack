@@ -36,6 +36,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestTemplate;
 
+import javax.annotation.Nullable;
 import javax.swing.filechooser.FileSystemView;
 import java.io.File;
 import java.util.List;
@@ -50,8 +51,9 @@ public class OrderService {
     // it is important to initialize the OpenTelemetry SDK as early as possible in your application's
     // lifecycle.
     private static final OpenTelemetry openTelemetry = ConfigurationUtil.initOpenTelemetry();
-    private static final Meter meter =
-            GlobalMetricsProvider.getMeter("io.opentelemetry.example.metrics", "0.13.1");
+    private static final Meter meter = ConfigurationUtil
+            .initOpenTelemetryMetrics()
+            .get("io.opentelemetry.example.metrics", "0.13.1");
 
     @Autowired
     TagGenerator tagGenerator;
@@ -64,6 +66,11 @@ public class OrderService {
             .longCounterBuilder("calls.per.minute")
             .setDescription("Calls Per Minute")
             .setUnit("1").build();
+    // Mentions per minute
+    LongCounter mentionsPerMinute = meter
+            .longCounterBuilder("mentions.per.minute")
+            .setDescription("Mentions Per Minute")
+            .setUnit("1").build();
     // Errors per minute
     LongCounter errorsPerMinute = meter
             .longCounterBuilder("errors.per.minute")
@@ -75,14 +82,12 @@ public class OrderService {
             .setDescription("Latency in ms")
             .setUnit("ms").build();
     // Tell OpenTelemetry to inject the context in the HTTP headers
-    TextMapSetter<HttpEntity> setter =
-            new TextMapSetter<HttpEntity>() {
-                @Override
-                public void set(HttpEntity carrier, String key, String value) {
-                    // Insert the context as Header
-                    carrier.getHeaders().add(key, value);
-                }
-            };
+    TextMapSetter<HttpHeaders> setter = new TextMapSetter<HttpHeaders>() {
+        @Override
+        public void set(@Nullable HttpHeaders carrier, String key, String value) {
+            carrier.set(key, value);
+        }
+    };
 
     @GetMapping(value="/getQuote/{ticker}", produces = MediaType.TEXT_PLAIN_VALUE)
     public ResponseEntity<StockQuote> getQuote(@PathVariable("ticker") String ticker) {
@@ -102,18 +107,18 @@ public class OrderService {
                 headers.set("Header", "value");
                 headers.set("Other-Header", "othervalue");
                 HttpEntity entity = new HttpEntity(ticker,headers);
-                ResponseEntity<StockQuote> response = restTemplate.postForEntity(
-                        "http://localhost:7072/subscriptionService/subscribe", entity, StockQuote.class);
+                ResponseEntity<StockQuote> response = restTemplate.getForEntity(
+                        "http://localhost:7072/subscriptionService/subscribe?ticker=" + ticker, StockQuote.class);
 
                 stockQuote = response.getBody();
-                openTelemetry.getPropagators().getTextMapPropagator().inject(Context.current(), entity, setter);
+                openTelemetry.getPropagators().getTextMapPropagator().inject(Context.current(), headers, setter);
                 logger.info("Stock quote {}", stockQuote.toString());
                 // Latency
                 BoundLongCounter latencyRecorder = requestLatency.bind(Labels.of("stock", ticker));
                 latencyRecorder.add(System.currentTimeMillis() - startTime);
             } catch (Throwable e) {
                 // EPM
-                logger.error("Exception during the /equityOrder with the exception {}", String.valueOf(e));
+                logger.error("traceId {} - Exception during the /placeOrder with the exception {}", span.getSpanContext().getTraceId(), String.valueOf(e));
                 BoundLongCounter epmRecorder = errorsPerMinute.bind(Labels.of("stock", ticker));
                 epmRecorder.add(1);
                 span.setAttribute("Stack trace", String.valueOf(e.getStackTrace()));
@@ -126,8 +131,8 @@ public class OrderService {
         return ResponseEntity.ok(stockQuote);
     }
 
-    @PostMapping(path = "/equityOrder", consumes = "application/json", produces = "application/json")
-    public ResponseEntity<EquityOrder> equityOrder(@RequestBody EquityOrder order) {
+    @PostMapping(path = "/placeOrder", consumes = "application/json", produces = "application/json")
+    public ResponseEntity<EquityOrder> placeOrder(@RequestBody EquityOrder order) {
         long startTime = System.currentTimeMillis();
         // CPM
         BoundLongCounter cpmRecorder = callsPerMinute.bind(Labels.of("stock", order.getTicker(), "region", order.getRegion()));
@@ -136,50 +141,60 @@ public class OrderService {
         // OTel Tracing API
         final Tracer tracer = openTelemetry.getTracer("com.sherrif.of.nottingham.order.service.services.OrderService");
         // Start a span
-        Span span = tracer.spanBuilder("orderService/equityOrder").setSpanKind(SpanKind.SERVER).startSpan();
+        Span span = tracer.spanBuilder("orderService/placeOrder").setSpanKind(SpanKind.SERVER).startSpan();
+        span.setAttribute("tags.stock",order.getTicker());
+        span.setAttribute("tags.region",order.getRegion());
+
         // Set the context with the current span
+        EquityOrder equityOrder;
         try (Scope scope = span.makeCurrent()) {
             try {
-                downstreamCall(order, tracer);
+                logger.info("Calling downstream with order = " + order);
+                equityOrder = downstreamCall(order, tracer);
                 // Latency
                 BoundLongCounter latencyRecorder = requestLatency.bind(Labels.of("stock", order.getTicker(), "region", order.getRegion()));
                 latencyRecorder.add(System.currentTimeMillis() - startTime);
             } catch (Throwable e) {
-                logger.error("Exception during the /equityOrder with the exception {}", String.valueOf(e));
+                logger.error("Exception during the /placeOrder with the exception {}", String.valueOf(e), e);
                 span.setAttribute("Stack trace", String.valueOf(e.getStackTrace()));
                 span.setStatus(StatusCode.ERROR, String.valueOf(e.getStackTrace()));
                 // EPM
                 BoundLongCounter epmRecorder = errorsPerMinute.bind(Labels.of("stock", order.getTicker(), "region", order.getRegion()));
                 epmRecorder.add(1);
+                return ResponseEntity.badRequest().build();
             }
         } finally {
             span.end();
         }
-        return ResponseEntity.ok(order);
+        return ResponseEntity.ok(equityOrder);
     }
 
-    private void downstreamCall(EquityOrder order, Tracer tracer) {
+    private EquityOrder downstreamCall(EquityOrder order, Tracer tracer) {
         Span downstreamCallSpan =
                 tracer
                         .spanBuilder("orderProcessor/process/outgoingCall")
                         .setSpanKind(SpanKind.CLIENT)
                         .startSpan();
-        try {
+        downstreamCallSpan.setAttribute("tags.stock",order.getTicker());
+        downstreamCallSpan.setAttribute("tags.region",order.getRegion());
+
+        try (Scope scope = downstreamCallSpan.makeCurrent()) {
 
             HttpHeaders headers = new HttpHeaders();
-            headers.set("Good", "true");
+            headers.set("Header1", "value1");
             headers.set("Other-Header", "othervalue");
             HttpEntity entity = new HttpEntity(order, headers);
 
+            openTelemetry.getPropagators().getTextMapPropagator().inject(Context.current(), headers, setter);
             ResponseEntity<EquityOrder> response = restTemplate.postForEntity(
-                    "http://localhost:7071/orderProcessor/process", entity, EquityOrder.class);
+                    "http://order-processor:7071/orderProcessor/process", entity, EquityOrder.class);
 
             order = response.getBody();
-            openTelemetry.getPropagators().getTextMapPropagator().inject(Context.current(), entity, setter);
             logger.info("Order processed {}", order.toString());
         } finally {
             downstreamCallSpan.end();
         }
+        return order;
     }
 
     @PostMapping("/shoutout")
@@ -191,14 +206,16 @@ public class OrderService {
         Span span = tracer.spanBuilder("orderService/shoutOut").setSpanKind(SpanKind.CLIENT).startSpan();
         //Generate tag
         List<String> tags = tagGenerator.generateTagsFromUnstructuredInput(text, "ORGANIZATION");
+        span.setAttribute("intelli.tags",tags.toString());
+
         LabelsBuilder labelsBuilder = Labels.builder();
         // CPM
         for (String tag : tags) {
             labelsBuilder.put("ORGANIZATION", tag);
         }
         Labels labels = labelsBuilder.build();
-        BoundLongCounter cpmRecorder = callsPerMinute.bind(labels);
-        cpmRecorder.add(1);
+        BoundLongCounter cpmRecorder = mentionsPerMinute.bind(labels);
+        cpmRecorder.add(new Double(Math.random() * 1000).longValue());
 
         // Set the context with the current span
         try (Scope scope = span.makeCurrent()) {
@@ -207,11 +224,11 @@ public class OrderService {
                 headers.set("Header", "value");
                 headers.set("Other-Header", "othervalue");
                 HttpEntity entity = new HttpEntity(headers);
+                openTelemetry.getPropagators().getTextMapPropagator().inject(Context.current(), headers, setter);
                 ResponseEntity<StockQuote> response = restTemplate.exchange(
                         "http://localhost:7071/subscriptionService/subscribe", HttpMethod.GET, entity, StockQuote.class);
 
                 stockQuote = response.getBody();
-                openTelemetry.getPropagators().getTextMapPropagator().inject(Context.current(), entity, setter);
                 logger.info(stockQuote.toString());
             } catch (Throwable e) {
                 span.setStatus(StatusCode.ERROR, e.getMessage());

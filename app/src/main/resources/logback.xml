@@ -2,7 +2,6 @@
 <configuration scan="true" debug="true" scanPeriod="60 seconds">
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <timeZone>system</timeZone>
             <pattern>%-5p [%d{yyyy-MM-dd'T'HH:mm:ss,SSSZ}|%thread] %c: %m%n%rEx</pattern>
         </encoder>
     </appender>

@@ -77,7 +77,7 @@ public class App {
                 parentSpan.end();
                 LOGGER.info("Reported Span: " + parentSpan);
             }
-            Thread.sleep(60000);
+            Thread.sleep(1000);
             cnt ++;
         }
 
@@ -86,9 +86,9 @@ public class App {
     static String getStock(int n) {
         int m = new Double(Math.random() * n * 100).intValue();
         if (m % 15 == 0) return "Grayberry";
-        else if (m % 5 == 0) return "Yeskia";
+        else if (m % 5 == 0) return "Anc";
         else if (m % 2 == 0) return "Gamestart";
-        else return "Anc";
+        else return "Yeskia";
     }
 
     static String getRegion(int n) {
@@ -127,6 +127,10 @@ public class App {
         else if (stock.equals("Gamestart") && region.equals("Europe")) return 500L;
         else if (stock.equals("Gamestart") && region.equals("Asia")) return 250L;
         else if (stock.equals("Gamestart") && region.equals("Africa")) return 100L;
+        else if (stock.equals("Yeskia") && region.equals("North America")) return 500L;
+        else if (stock.equals("Yeskia") && region.equals("Europe")) return 250L;
+        else if (stock.equals("Yeskia") && region.equals("Asia")) return 100L;
+        else if (stock.equals("Yeskia") && region.equals("Africa")) return 50L;
         else if (region.equals("North America")) return new Double(Math.random() * 1000).longValue();
         else if (region.equals("Europe")) return new Double(Math.random() * 500).longValue();
         else if (region.equals("Asia")) return new Double(Math.random() * 250).longValue();

@@ -73,19 +73,21 @@ public class OrderProcessorService {
                         .setParent(extractedContext)
                         .setSpanKind(SpanKind.SERVER)
                         .startSpan();
+        span.setAttribute("tags.stock",order.getTicker());
+        span.setAttribute("tags.region",order.getRegion());
         try {
-            handleError(order.getTicker());
+            handleError(order.getTicker(), span);
         } catch (Exception e) {
-            logger.error("Random exception during the orderProcessor/process of : {} for region {}", order.getTicker(), order.getRegion());
+            logger.error("traceId {} - Random exception during the orderProcessor/process of : {} for region {}", span.getSpanContext().getTraceId(), order.getTicker(), order.getRegion());
             Attributes attributes = Attributes.of(AttributeKey.stringKey("stack-trace"), String.valueOf(e));
             span.addEvent("Order Processor Stack trace", attributes);
             span.setStatus(StatusCode.ERROR, e.getMessage());
         }
         if(order.isErrorFlag()) {
-            logger.error("Exception during the /equityOrder due to an input error");
+            logger.error("traceId {} - Exception during the /placeOrder due to an input error", span.getSpanContext().getTraceId());
             Attributes attributes = Attributes.of(AttributeKey.stringKey("stack-trace"), String.valueOf(Thread.getAllStackTraces()));
             span.addEvent("Order Processor Stack trace", attributes);
-            span.setStatus(StatusCode.ERROR, "Exception during the /equityOrder due to an input error");
+            span.setStatus(StatusCode.ERROR, "Exception during the /placeOrder due to an input error");
         }
 
         // Set the context with the current span
@@ -95,7 +97,7 @@ public class OrderProcessorService {
                 Random random = new Random();
                 order.setOrderId(random.nextInt(10000));
             } catch (Throwable e) {
-                logger.error("Exception during the /process with the exception {}", String.valueOf(e));
+                logger.error("traceId {} - Exception during the /process with the exception {}", span.getSpanContext().getTraceId(), String.valueOf(e));
                 span.setAttribute("Stack trace", String.valueOf(e.getStackTrace()));
                 span.setStatus(StatusCode.ERROR, String.valueOf(e.getStackTrace()));
             }
@@ -111,10 +113,10 @@ public class OrderProcessorService {
         return "success";
     }
 
-    private void handleError(String ticker) throws Exception {
+    private void handleError(String ticker, Span span) throws Exception {
         Random random = new Random();
         if(random.nextInt(10)>5) {
-            logger.error("Random exception during the transaction processing of : {}", ticker);
+            logger.error("traceId {} - Random exception during the transaction processing of : {}", span.getSpanContext().getTraceId(), ticker);
             throw new Exception(String.format("Random exception during the transaction processing of : %s", ticker));
         }
     }

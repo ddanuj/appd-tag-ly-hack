@@ -14,6 +14,7 @@ public class OrderServiceApplication {
 
 	public static void main(String[] args) {
 		// Set to process the spans with the LoggingSpanExporter
+		System.setProperty("otel.resource.attributes", "service.name=OtlpExporterExample");
 		SpringApplication.run(OrderServiceApplication.class, args);
 	}
 

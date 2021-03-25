@@ -1,15 +1,21 @@
 package com.sherrif.of.nottingham.app;
 
-import com.sherrif.of.nottingham.services.order.OrderService;
 import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.metrics.MeterProvider;
 import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
 import io.opentelemetry.context.propagation.ContextPropagators;
+import io.opentelemetry.exporter.otlp.metrics.OtlpGrpcMetricExporter;
 import io.opentelemetry.exporter.otlp.trace.OtlpGrpcSpanExporter;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
+import io.opentelemetry.sdk.autoconfigure.OpenTelemetrySdkAutoConfiguration;
+import io.opentelemetry.sdk.metrics.SdkMeterProvider;
+import io.opentelemetry.sdk.metrics.export.IntervalMetricReader;
 import io.opentelemetry.sdk.trace.SdkTracerProvider;
 import io.opentelemetry.sdk.trace.export.BatchSpanProcessor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.Collections;
 
 public class ConfigurationUtil {
 
@@ -18,7 +24,8 @@ public class ConfigurationUtil {
 
         // Set to process the spans with the LoggingSpanExporter
         SdkTracerProvider sdkTracerProvider = SdkTracerProvider.builder()
-                .addSpanProcessor(BatchSpanProcessor.builder(OtlpGrpcSpanExporter.builder().setEndpoint("http://otel-agent:4317").build()).build())
+                .addSpanProcessor(BatchSpanProcessor.builder(OtlpGrpcSpanExporter.builder().setEndpoint("http://localhost:4317").build()).build())
+                .setResource(OpenTelemetrySdkAutoConfiguration.getResource())
                 .build();
 
         OpenTelemetry openTelemetry = OpenTelemetrySdk.builder()
@@ -38,6 +45,29 @@ public class ConfigurationUtil {
                                 }));
 
         return openTelemetry;
+    }
+
+    /**
+     * Initializes a Metrics SDK with a OtlpGrpcMetricExporter and an IntervalMetricReader.
+     *
+     * @return a ready-to-use {@link MeterProvider} instance
+     */
+    public static MeterProvider initOpenTelemetryMetrics() {
+        // set up the metric exporter and wire it into the SDK and a timed reader.
+        OtlpGrpcMetricExporter metricExporter = OtlpGrpcMetricExporter.builder()
+                .setEndpoint("http://localhost:4317").build();
+
+        SdkMeterProvider meterProvider = SdkMeterProvider.builder().buildAndRegisterGlobal();
+        IntervalMetricReader intervalMetricReader =
+                IntervalMetricReader.builder()
+                        .setMetricExporter(metricExporter)
+                        .setMetricProducers(Collections.singleton(meterProvider))
+                        .setExportIntervalMillis(1000)
+                        .build();
+
+        Runtime.getRuntime().addShutdownHook(new Thread(intervalMetricReader::shutdown));
+
+        return meterProvider;
     }
 
 }
