@@ -24,7 +24,7 @@ public class ConfigurationUtil {
 
         // Set to process the spans with the LoggingSpanExporter
         SdkTracerProvider sdkTracerProvider = SdkTracerProvider.builder()
-                .addSpanProcessor(BatchSpanProcessor.builder(OtlpGrpcSpanExporter.builder().setEndpoint("http://localhost:4317").build()).build())
+                .addSpanProcessor(BatchSpanProcessor.builder(OtlpGrpcSpanExporter.builder().setEndpoint("http://otel-agent:4317").build()).build())
                 .setResource(OpenTelemetrySdkAutoConfiguration.getResource())
                 .build();
 
@@ -55,7 +55,7 @@ public class ConfigurationUtil {
     public static MeterProvider initOpenTelemetryMetrics() {
         // set up the metric exporter and wire it into the SDK and a timed reader.
         OtlpGrpcMetricExporter metricExporter = OtlpGrpcMetricExporter.builder()
-                .setEndpoint("http://localhost:4317").build();
+                .setEndpoint("http://otel-agent:4317").build();
 
         SdkMeterProvider meterProvider = SdkMeterProvider.builder().buildAndRegisterGlobal();
         IntervalMetricReader intervalMetricReader =

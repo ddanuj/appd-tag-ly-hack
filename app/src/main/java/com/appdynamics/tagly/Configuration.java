@@ -26,7 +26,7 @@ public class Configuration {
     static OpenTelemetry initOpenTelemetry() {
         OtlpGrpcSpanExporter spanExporter =
                 OtlpGrpcSpanExporter.builder()
-                        .setTimeout(2, TimeUnit.SECONDS).setEndpoint("http://localhost:4317").build();
+                        .setTimeout(2, TimeUnit.SECONDS).setEndpoint("http://otel-agent:4317").build();
         BatchSpanProcessor spanProcessor =
                 BatchSpanProcessor.builder(spanExporter)
                         .setScheduleDelay(100, TimeUnit.MILLISECONDS)
@@ -53,7 +53,7 @@ public class Configuration {
     static MeterProvider initOpenTelemetryMetrics() {
         // set up the metric exporter and wire it into the SDK and a timed reader.
         OtlpGrpcMetricExporter metricExporter = OtlpGrpcMetricExporter.builder()
-                .setEndpoint("http://localhost:4317").build();
+                .setEndpoint("http://otel-agent:4317").build();
 
         SdkMeterProvider meterProvider = SdkMeterProvider.builder().buildAndRegisterGlobal();
         IntervalMetricReader intervalMetricReader =
