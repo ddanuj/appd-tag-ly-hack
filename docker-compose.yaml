@@ -147,7 +147,9 @@ services:
     container_name: grafana
     image: grafana/grafana:latest
     volumes:
-      - ./config/grafana:/etc/grafana/provisioning/datasources
+      - ./config/grafana/datasources:/etc/grafana/provisioning/datasources
+      - ./config/grafana/dashboards-provisioning:/etc/grafana/provisioning/dashboards
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards
     environment:
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
